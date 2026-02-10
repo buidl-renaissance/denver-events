@@ -31,6 +31,21 @@ function meetupRowToUnified(row: typeof meetupEvents.$inferSelect): UnifiedEvent
   const startTime = dateTime
     ? dateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
     : '12:00 AM';
+
+  // Calculate end time from duration (in milliseconds) if available in eventData
+  type EventDataObj = { duration?: number; endTime?: string; [key: string]: unknown };
+  const eventData = row.eventData as EventDataObj | null;
+  let endTime: string | null = null;
+  if (dateTime && eventData?.duration && typeof eventData.duration === 'number') {
+    const endDateTime = new Date(dateTime.getTime() + eventData.duration);
+    endTime = endDateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  } else if (eventData?.endTime && typeof eventData.endTime === 'string') {
+    const endDateTime = new Date(eventData.endTime);
+    if (!isNaN(endDateTime.getTime())) {
+      endTime = endDateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    }
+  }
+
   type VenueObj = { name?: string; address?: string; city?: string };
   type GroupObj = { name?: string; keyGroupPhoto?: { highResUrl?: string; baseUrl?: string } };
   type FeaturedObj = { highResUrl?: string; baseUrl?: string };
@@ -61,7 +76,7 @@ function meetupRowToUnified(row: typeof meetupEvents.$inferSelect): UnifiedEvent
     id: row.id,
     eventDate: eventDate || new Date().toISOString().slice(0, 10),
     startTime: startTime || '12:00 AM',
-    endTime: null,
+    endTime,
     eventName: row.title,
     organizer: group?.name ?? null,
     venue,
