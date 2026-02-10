@@ -27,14 +27,18 @@ function meetupRowToUnified(row: typeof meetupEvents.$inferSelect): UnifiedEvent
   const startTime = dateTime
     ? dateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
     : '12:00 AM';
-  const venue = row.venue && typeof row.venue === 'object'
-    ? [row.venue.name, row.venue.address, row.venue.city].filter(Boolean).join(', ')
+  type VenueObj = { name?: string; address?: string; city?: string };
+  type GroupObj = { name?: string; keyGroupPhoto?: { highResUrl?: string; baseUrl?: string } };
+  type FeaturedObj = { highResUrl?: string; baseUrl?: string };
+  const venueObj = row.venue as VenueObj | null;
+  const venue = venueObj && typeof venueObj === 'object'
+    ? [venueObj.name, venueObj.address, venueObj.city].filter(Boolean).join(', ')
     : '';
-  const group = row.group && typeof row.group === 'object' ? row.group : null;
-  const featured = row.featuredEventPhoto && typeof row.featuredEventPhoto === 'object' ? row.featuredEventPhoto : null;
+  const group = row.group as GroupObj | null;
+  const featured = row.featuredEventPhoto as FeaturedObj | null;
   const imageUrl =
     (featured?.highResUrl || featured?.baseUrl) ??
-    (group?.keyGroupPhoto && typeof group.keyGroupPhoto === 'object'
+    (group?.keyGroupPhoto
       ? (group.keyGroupPhoto.highResUrl || group.keyGroupPhoto.baseUrl)
       : null);
   const notes =
@@ -50,9 +54,9 @@ function meetupRowToUnified(row: typeof meetupEvents.$inferSelect): UnifiedEvent
     eventName: row.title,
     organizer: group?.name ?? null,
     venue,
-    registrationUrl: row.eventUrl,
-    imageUrl,
-    notes,
+    registrationUrl: row.eventUrl ?? null,
+    imageUrl: imageUrl ?? null,
+    notes: notes ?? null,
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
     eventSource: 'meetup',
@@ -73,13 +77,13 @@ function raRowToUnified(row: typeof raEvents.$inferSelect): UnifiedEvent {
     id: row.id,
     eventDate: row.date,
     startTime: row.startTime || '12:00 AM',
-    endTime: row.endTime,
+    endTime: row.endTime ?? null,
     eventName: row.title,
-    organizer: artistNames,
+    organizer: artistNames ?? null,
     venue: venueName,
-    registrationUrl: row.contentUrl,
-    imageUrl: row.imageUrl,
-    notes: artistNames,
+    registrationUrl: row.contentUrl ?? null,
+    imageUrl: row.imageUrl ?? null,
+    notes: artistNames ?? null,
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
     eventSource: 'ra',
