@@ -19,6 +19,10 @@ export type UnifiedEvent = {
   updatedAt: string;
   /** Optional: 'meetup' | 'ra' for extra detail in app */
   eventSource?: 'meetup' | 'ra';
+  /** Meetup: number of attendees/RSVPs */
+  attendeeCount?: number | null;
+  /** RA: number interested */
+  interestedCount?: number | null;
 };
 
 function meetupRowToUnified(row: typeof meetupEvents.$inferSelect): UnifiedEvent {
@@ -46,6 +50,13 @@ function meetupRowToUnified(row: typeof meetupEvents.$inferSelect): UnifiedEvent
       ? row.description.slice(0, 2000)
       : row.description;
 
+  type RsvpsObj = { totalCount?: number; yesRsvpCount?: number; goingCount?: number };
+  const rsvps = row.rsvps as RsvpsObj | null;
+  const attendeeCount =
+    rsvps && typeof rsvps === 'object'
+      ? rsvps.totalCount ?? rsvps.yesRsvpCount ?? rsvps.goingCount ?? null
+      : null;
+
   return {
     id: row.id,
     eventDate: eventDate || new Date().toISOString().slice(0, 10),
@@ -60,6 +71,8 @@ function meetupRowToUnified(row: typeof meetupEvents.$inferSelect): UnifiedEvent
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
     eventSource: 'meetup',
+    attendeeCount: attendeeCount ?? null,
+    interestedCount: null,
   };
 }
 
@@ -87,6 +100,8 @@ function raRowToUnified(row: typeof raEvents.$inferSelect): UnifiedEvent {
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
     eventSource: 'ra',
+    attendeeCount: null,
+    interestedCount: row.interestedCount ?? null,
   };
 }
 
