@@ -59,10 +59,20 @@ export interface MeetupEvent {
     city?: string;
     state?: string;
     country?: string;
+    keyGroupPhoto?: {
+      baseUrl?: string;
+      highResUrl?: string;
+      id?: string;
+    };
   };
   series?: {
     id?: string;
     title?: string;
+  };
+  featuredEventPhoto?: {
+    baseUrl?: string;
+    highResUrl?: string;
+    id?: string;
   };
   [key: string]: unknown;
 }

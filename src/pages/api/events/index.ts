@@ -1,13 +1,94 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { getDb } from '@/db/drizzle';
-import { events } from '@/db/schema';
+import { meetupEvents, raEvents } from '@/db/schema';
 
-type EventRow = typeof events.$inferSelect;
+/** Unified event shape for mobile app (same as before) */
+export type UnifiedEvent = {
+  id: string;
+  eventDate: string;
+  startTime: string;
+  endTime: string | null;
+  eventName: string;
+  organizer: string | null;
+  venue: string;
+  registrationUrl: string | null;
+  imageUrl: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Optional: 'meetup' | 'ra' for extra detail in app */
+  eventSource?: 'meetup' | 'ra';
+};
+
+function meetupRowToUnified(row: typeof meetupEvents.$inferSelect): UnifiedEvent {
+  const dateTime = row.dateTime ? new Date(row.dateTime) : null;
+  const eventDate = dateTime ? dateTime.toISOString().slice(0, 10) : '';
+  const startTime = dateTime
+    ? dateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    : '12:00 AM';
+  const venue = row.venue && typeof row.venue === 'object'
+    ? [row.venue.name, row.venue.address, row.venue.city].filter(Boolean).join(', ')
+    : '';
+  const group = row.group && typeof row.group === 'object' ? row.group : null;
+  const featured = row.featuredEventPhoto && typeof row.featuredEventPhoto === 'object' ? row.featuredEventPhoto : null;
+  const imageUrl =
+    (featured?.highResUrl || featured?.baseUrl) ??
+    (group?.keyGroupPhoto && typeof group.keyGroupPhoto === 'object'
+      ? (group.keyGroupPhoto.highResUrl || group.keyGroupPhoto.baseUrl)
+      : null);
+  const notes =
+    row.description && row.description.length > 2000
+      ? row.description.slice(0, 2000)
+      : row.description;
+
+  return {
+    id: row.id,
+    eventDate: eventDate || new Date().toISOString().slice(0, 10),
+    startTime: startTime || '12:00 AM',
+    endTime: null,
+    eventName: row.title,
+    organizer: group?.name ?? null,
+    venue,
+    registrationUrl: row.eventUrl,
+    imageUrl,
+    notes,
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+    eventSource: 'meetup',
+  };
+}
+
+function raRowToUnified(row: typeof raEvents.$inferSelect): UnifiedEvent {
+  const artists = Array.isArray(row.artists) ? row.artists : [];
+  const artistNames = artists.length
+    ? artists.map((a: { name?: string }) => a.name).filter(Boolean).join(', ')
+    : null;
+  const venueName =
+    row.venue && typeof row.venue === 'object' && row.venue !== null
+      ? (row.venue as { name?: string }).name ?? ''
+      : '';
+
+  return {
+    id: row.id,
+    eventDate: row.date,
+    startTime: row.startTime || '12:00 AM',
+    endTime: row.endTime,
+    eventName: row.title,
+    organizer: artistNames,
+    venue: venueName,
+    registrationUrl: row.contentUrl,
+    imageUrl: row.imageUrl,
+    notes: artistNames,
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+    eventSource: 'ra',
+  };
+}
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<{ events: EventRow[] } | { error: string }>
+  res: NextApiResponse<{ events: UnifiedEvent[] } | { error: string }>
 ) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -15,36 +96,44 @@ export default async function handler(
 
   try {
     const db = getDb();
-    const { eventDate, limit, offset } = req.query;
+    const { eventDate: queryDate, limit, offset } = req.query;
 
     const limitNum = typeof limit === 'string' ? Math.min(parseInt(limit, 10) || 500, 500) : 500;
     const offsetNum = typeof offset === 'string' ? Math.max(0, parseInt(offset, 10) || 0) : 0;
 
-    const baseQuery = db.select().from(events);
-    const filteredQuery =
-      typeof eventDate === 'string' && eventDate
-        ? baseQuery.where(eq(events.eventDate, eventDate))
-        : baseQuery;
+    const dateFilter =
+      typeof queryDate === 'string' && queryDate ? queryDate : null;
 
-    const rows = await filteredQuery
-      .orderBy(events.eventDate, events.startTime)
-      .limit(limitNum)
-      .offset(offsetNum);
+    const [meetupRows, raRows] = await Promise.all([
+      dateFilter
+        ? db
+            .select()
+            .from(meetupEvents)
+            .where(
+              sql`substr(${meetupEvents.dateTime}, 1, 10) = ${dateFilter}`
+            )
+            .orderBy(meetupEvents.dateTime)
+        : db.select().from(meetupEvents).orderBy(meetupEvents.dateTime),
+      dateFilter
+        ? db
+            .select()
+            .from(raEvents)
+            .where(eq(raEvents.date, dateFilter))
+            .orderBy(raEvents.date, raEvents.startTime)
+        : db.select().from(raEvents).orderBy(raEvents.date, raEvents.startTime),
+    ]);
 
-    const eventsList = rows.map((r) => ({
-      id: r.id,
-      eventDate: r.eventDate,
-      startTime: r.startTime,
-      endTime: r.endTime,
-      eventName: r.eventName,
-      organizer: r.organizer,
-      venue: r.venue,
-      registrationUrl: r.registrationUrl,
-      imageUrl: r.imageUrl,
-      notes: r.notes,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    }));
+    const meetupUnified = meetupRows.map(meetupRowToUnified);
+    const raUnified = raRows.map(raRowToUnified);
+    const combined: UnifiedEvent[] = [...meetupUnified, ...raUnified];
+
+    combined.sort((a, b) => {
+      const d = a.eventDate.localeCompare(b.eventDate);
+      if (d !== 0) return d;
+      return (a.startTime || '').localeCompare(b.startTime || '');
+    });
+
+    const eventsList = combined.slice(offsetNum, offsetNum + limitNum);
 
     return res.status(200).json({ events: eventsList });
   } catch (err) {

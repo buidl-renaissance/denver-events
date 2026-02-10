@@ -22,6 +22,20 @@
       "when": 1770686715466,
       "tag": "0002_oval_magdalene",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1770700000000,
+      "tag": "0003_meetup_ra_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1770737145843,
+      "tag": "0004_secret_prodigy",
+      "breakpoints": true
     }
   ]
 }

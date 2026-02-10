@@ -29,6 +29,13 @@ export interface GetEventListingsVariables {
   areaId?: string | number;
 }
 
+export interface RAEventImage {
+  id: string;
+  filename?: string;
+  type?: string;
+  __typename?: string;
+}
+
 export interface RAEvent {
   id: string;
   date: string;
@@ -36,7 +43,8 @@ export interface RAEvent {
   endTime?: string;
   title: string;
   contentUrl?: string;
-  flyerFront?: string;
+  flyerFront?: string | null;
+  images?: RAEventImage[] | null;
   venue?: {
     id: string;
     name: string;

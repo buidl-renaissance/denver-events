@@ -53,6 +53,7 @@ const GET_EVENT_LISTINGS_WITH_BUMPS = `
     title
     contentUrl
     flyerFront
+    images { id filename type __typename }
     venue { id name contentUrl live __typename }
     artists { id name __typename }
     __typename

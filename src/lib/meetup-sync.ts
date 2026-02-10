@@ -1,70 +1,11 @@
 import type { MeetupEvent } from '@/types/meetup-graphql';
 import { getDb } from '@/db/drizzle';
-import { events } from '@/db/schema';
+import { meetupEvents } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 /** Denver, CO approximate center */
 export const DENVER_LAT = 39.7392;
 export const DENVER_LON = -104.9903;
-
-const NOTES_MAX_LENGTH = 2000;
-
-/**
- * Map a Meetup event to the denver-events schema (same shape as API/mobile).
- */
-export function mapMeetupEventToDenverEvent(meetup: MeetupEvent): {
-  id: string;
-  eventDate: string;
-  startTime: string;
-  endTime: string | null;
-  eventName: string;
-  organizer: string | null;
-  venue: string;
-  registrationUrl: string | null;
-  imageUrl: string | null;
-  notes: string | null;
-} {
-  const id = `meetup-${meetup.id}`;
-  const dateTime = meetup.dateTime ? new Date(meetup.dateTime) : null;
-  const eventDate = dateTime
-    ? dateTime.toISOString().slice(0, 10)
-    : '';
-  const startTime = dateTime
-    ? dateTime.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      })
-    : '12:00 AM';
-
-  let venue = '';
-  if (meetup.venue?.name) {
-    venue = meetup.venue.name;
-    if (meetup.venue.address || meetup.venue.city) {
-      const parts = [meetup.venue.address, meetup.venue.city].filter(Boolean);
-      if (parts.length) venue += `, ${parts.join(', ')}`;
-    }
-  } else if (meetup.venue?.address || meetup.venue?.city) {
-    venue = [meetup.venue.address, meetup.venue.city].filter(Boolean).join(', ');
-  }
-
-  const notes = meetup.description
-    ? meetup.description.slice(0, NOTES_MAX_LENGTH)
-    : null;
-
-  return {
-    id,
-    eventDate: eventDate || new Date().toISOString().slice(0, 10),
-    startTime: startTime || '12:00 AM',
-    endTime: null,
-    eventName: meetup.title || 'Untitled Event',
-    organizer: meetup.group?.name ?? null,
-    venue,
-    registrationUrl: meetup.eventUrl ?? null,
-    imageUrl: null,
-    notes,
-  };
-}
 
 /**
  * Extract Meetup events from GraphQL response (data.result.edges).
@@ -81,13 +22,12 @@ export function extractMeetupEventsFromResponse(data: {
 }
 
 /**
- * Upsert Meetup-sourced events into the denver-events table.
- * Uses event id (meetup-{id}) for conflict; updates existing rows.
+ * Upsert Meetup events into meetup_events table with full detail.
  */
 export async function storeMeetupEventsInDenverDb(
-  meetupEvents: MeetupEvent[]
+  meetupEventsList: MeetupEvent[]
 ): Promise<{ inserted: number; updated: number }> {
-  if (meetupEvents.length === 0) {
+  if (meetupEventsList.length === 0) {
     return { inserted: 0, updated: 0 };
   }
 
@@ -96,43 +36,76 @@ export async function storeMeetupEventsInDenverDb(
   let inserted = 0;
   let updated = 0;
 
-  for (const meetup of meetupEvents) {
-    const row = mapMeetupEventToDenverEvent(meetup);
+  for (const meetup of meetupEventsList) {
+    const id = `meetup-${meetup.id}`;
+    const venueJson = meetup.venue
+      ? {
+          name: meetup.venue.name,
+          address: meetup.venue.address,
+          city: meetup.venue.city,
+          state: meetup.venue.state,
+          country: meetup.venue.country,
+        }
+      : null;
+    const groupJson = meetup.group
+      ? {
+          name: meetup.group.name,
+          urlname: meetup.group.urlname,
+          keyGroupPhoto: meetup.group.keyGroupPhoto,
+        }
+      : null;
+    const featuredPhotoJson =
+      meetup.featuredEventPhoto ?
+        {
+          baseUrl: meetup.featuredEventPhoto.baseUrl,
+          highResUrl: meetup.featuredEventPhoto.highResUrl,
+          id: meetup.featuredEventPhoto.id,
+        }
+      : null;
+    const rsvpsJson = (meetup as Record<string, unknown>).rsvps ?? null;
+
+    const row = {
+      id,
+      meetupId: meetup.id,
+      title: meetup.title || 'Untitled Event',
+      description: meetup.description ?? null,
+      dateTime: meetup.dateTime ?? null,
+      eventUrl: meetup.eventUrl ?? null,
+      venue: venueJson,
+      group: groupJson,
+      featuredEventPhoto: featuredPhotoJson,
+      rsvps: rsvpsJson,
+      eventData: meetup as Record<string, unknown>,
+      createdAt: now,
+      updatedAt: now,
+    };
+
     const existing = await db
-      .select({ id: events.id })
-      .from(events)
-      .where(eq(events.id, row.id))
+      .select({ id: meetupEvents.id })
+      .from(meetupEvents)
+      .where(eq(meetupEvents.id, id))
       .limit(1);
 
     if (existing.length > 0) {
       await db
-        .update(events)
+        .update(meetupEvents)
         .set({
-          eventDate: row.eventDate,
-          startTime: row.startTime,
-          endTime: row.endTime,
-          eventName: row.eventName,
-          organizer: row.organizer,
+          title: row.title,
+          description: row.description,
+          dateTime: row.dateTime,
+          eventUrl: row.eventUrl,
           venue: row.venue,
-          registrationUrl: row.registrationUrl,
-          imageUrl: row.imageUrl,
-          notes: row.notes,
+          group: row.group,
+          featuredEventPhoto: row.featuredEventPhoto,
+          rsvps: row.rsvps,
+          eventData: row.eventData,
           updatedAt: now,
         })
-        .where(eq(events.id, row.id));
+        .where(eq(meetupEvents.id, id));
       updated += 1;
     } else {
-      await db.insert(events).values({
-        id: row.id,
-        eventDate: row.eventDate,
-        startTime: row.startTime,
-        endTime: row.endTime,
-        eventName: row.eventName,
-        organizer: row.organizer,
-        venue: row.venue,
-        registrationUrl: row.registrationUrl,
-        imageUrl: row.imageUrl,
-        notes: row.notes,
+      await db.insert(meetupEvents).values({
+        ...row,
         createdAt: now,
         updatedAt: now,
       });

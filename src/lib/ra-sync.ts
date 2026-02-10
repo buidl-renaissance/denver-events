@@ -1,14 +1,12 @@
 import type { RAEvent } from '@/types/ra-graphql';
 import { getDb } from '@/db/drizzle';
-import { events } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { raEvents } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 
 /** Denver area ID on RA.co - set RA_DENVER_AREA_ID in env if different */
 export const RA_DENVER_AREA_ID = process.env.RA_DENVER_AREA_ID
   ? parseInt(process.env.RA_DENVER_AREA_ID, 10)
   : 519;
-
-const NOTES_MAX_LENGTH = 2000;
 
 function formatTime(isoOrTime?: string): string {
   if (!isoOrTime) return '12:00 AM';
@@ -21,138 +19,108 @@ function formatTime(isoOrTime?: string): string {
   });
 }
 
-/**
- * Map an RA event to the denver-events schema (same shape as API/mobile).
- */
-export function mapRAEventToDenverEvent(ra: RAEvent): {
-  id: string;
-  eventDate: string;
-  startTime: string;
-  endTime: string | null;
-  eventName: string;
-  organizer: string | null;
-  venue: string;
-  registrationUrl: string | null;
-  imageUrl: string | null;
-  notes: string | null;
-} {
-  const id = `ra-${ra.id}`;
-  const eventDate = ra.date?.slice(0, 10) || new Date().toISOString().slice(0, 10);
-  const startTime = formatTime(ra.startTime);
-  const endTime = ra.endTime ? formatTime(ra.endTime) : null;
-  const venue = ra.venue?.name ?? '';
-  const artistNames =
-    ra.artists?.length ? ra.artists.map((a) => a.name).join(', ') : null;
-  const registrationUrl = ra.contentUrl
-    ? (ra.contentUrl.startsWith('http') ? ra.contentUrl : `https://ra.co${ra.contentUrl}`)
-    : null;
-  const imageUrl = ra.flyerFront ?? null;
-  const notes =
-    artistNames && artistNames.length <= NOTES_MAX_LENGTH
-      ? artistNames
-      : artistNames
-        ? artistNames.slice(0, NOTES_MAX_LENGTH)
-        : null;
-
-  return {
-    id,
-    eventDate,
-    startTime: startTime || '12:00 AM',
-    endTime,
-    eventName: ra.title || 'Untitled Event',
-    organizer: artistNames,
-    venue,
-    registrationUrl,
-    imageUrl,
-    notes,
-  };
+function toAbsUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  return url.startsWith('http') ? url : `https://ra.co${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
 /**
- * Upsert RA-sourced events into the denver-events table.
+ * Upsert RA events into ra_events table with full detail.
  */
 export async function storeRAEventsInDenverDb(
-  raEvents: RAEvent[]
+  raEventsList: RAEvent[]
 ): Promise<{ inserted: number; updated: number }> {
-  if (raEvents.length === 0) return { inserted: 0, updated: 0 };
+  if (raEventsList.length === 0) return { inserted: 0, updated: 0 };
 
   const db = getDb();
   const now = new Date();
   let inserted = 0;
   let updated = 0;
 
-  for (const ra of raEvents) {
-    const row = mapRAEventToDenverEvent(ra);
-    const existingById = await db
-      .select({ id: events.id })
-      .from(events)
-      .where(eq(events.id, row.id))
+  for (const ra of raEventsList) {
+    const id = `ra-${ra.id}`;
+    const imageUrl =
+      toAbsUrl(ra.flyerFront ?? undefined) ||
+      toAbsUrl(ra.images?.find((img) => img.type === 'FLYERFRONT')?.filename) ||
+      toAbsUrl(ra.images?.[0]?.filename) ||
+      null;
+
+    const venueJson = ra.venue
+      ? { id: ra.venue.id, name: ra.venue.name, contentUrl: ra.venue.contentUrl }
+      : null;
+    const artistsJson = ra.artists ?? null;
+    const imagesJson = ra.images ?? null;
+
+    const isTicketed =
+      ra.isTicketed === true || ra.isTicketed === false ? ra.isTicketed : null;
+    const interestedCount =
+      typeof (ra as Record<string, unknown>).interestedCount === 'number'
+        ? (ra as Record<string, unknown>).interestedCount as number
+        : null;
+
+    const row = {
+      id,
+      raId: ra.id,
+      date: ra.date?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+      startTime: ra.startTime ? formatTime(ra.startTime) : null,
+      endTime: ra.endTime ? formatTime(ra.endTime) : null,
+      title: ra.title || 'Untitled Event',
+      contentUrl: ra.contentUrl
+        ? (ra.contentUrl.startsWith('http') ? ra.contentUrl : `https://ra.co${ra.contentUrl}`)
+        : null,
+      flyerFront: ra.flyerFront ?? null,
+      imageUrl,
+      venue: venueJson,
+      artists: artistsJson,
+      images: imagesJson,
+      isTicketed,
+      interestedCount,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const existing = await db
+      .select({ id: raEvents.id })
+      .from(raEvents)
+      .where(eq(raEvents.id, id))
       .limit(1);
 
-    if (existingById.length > 0) {
+    if (existing.length > 0) {
       await db
-        .update(events)
+        .update(raEvents)
         .set({
-          eventDate: row.eventDate,
+          date: row.date,
           startTime: row.startTime,
           endTime: row.endTime,
-          eventName: row.eventName,
-          organizer: row.organizer,
-          venue: row.venue,
-          registrationUrl: row.registrationUrl,
+          title: row.title,
+          contentUrl: row.contentUrl,
+          flyerFront: row.flyerFront,
           imageUrl: row.imageUrl,
-          notes: row.notes,
+          venue: row.venue,
+          artists: row.artists,
+          images: row.images,
+          isTicketed: row.isTicketed,
+          interestedCount: row.interestedCount,
           updatedAt: now,
         })
-        .where(eq(events.id, row.id));
-      updated += 1;
-      continue;
-    }
-
-    const existingByKey = await db
-      .select({ id: events.id })
-      .from(events)
-      .where(
-        and(
-          eq(events.eventDate, row.eventDate),
-          eq(events.eventName, row.eventName),
-          eq(events.startTime, row.startTime)
-        )
-      )
-      .limit(1);
-
-    if (existingByKey.length > 0) {
-      await db
-        .update(events)
-        .set({
-          id: row.id,
-          eventDate: row.eventDate,
-          startTime: row.startTime,
-          endTime: row.endTime,
-          eventName: row.eventName,
-          organizer: row.organizer,
-          venue: row.venue,
-          registrationUrl: row.registrationUrl,
-          imageUrl: row.imageUrl,
-          notes: row.notes,
-          updatedAt: now,
-        })
-        .where(eq(events.id, existingByKey[0].id));
+        .where(eq(raEvents.id, id));
       updated += 1;
     } else {
-      await db.insert(events).values({
+      await db.insert(raEvents).values({
         id: row.id,
-        eventDate: row.eventDate,
+        raId: row.raId,
+        date: row.date,
         startTime: row.startTime,
         endTime: row.endTime,
-        eventName: row.eventName,
-        organizer: row.organizer,
-        venue: row.venue,
-        registrationUrl: row.registrationUrl,
+        title: row.title,
+        contentUrl: row.contentUrl,
+        flyerFront: row.flyerFront,
         imageUrl: row.imageUrl,
-        notes: row.notes,
-        createdAt: now,
-        updatedAt: now,
+        venue: row.venue,
+        artists: row.artists,
+        images: row.images,
+        isTicketed: row.isTicketed,
+        interestedCount: row.interestedCount,
       });
       inserted += 1;
     }
