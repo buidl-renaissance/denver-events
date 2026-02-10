@@ -11,7 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "sync:meetup": "tsx scripts/fetch-meetup-events.ts"
+    "sync:meetup": "tsx scripts/fetch-meetup-events.ts",
+    "sync:ra": "tsx scripts/fetch-ra-events.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.15.15",
