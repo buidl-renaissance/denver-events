@@ -36,6 +36,13 @@
       "when": 1770737145843,
       "tag": "0004_secret_prodigy",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1770752222381,
+      "tag": "0005_burly_the_liberteens",
+      "breakpoints": true
     }
   ]
 }

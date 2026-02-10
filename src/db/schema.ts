@@ -58,6 +58,8 @@ export const meetupEvents = sqliteTable('meetup_events', {
   title: text('title').notNull(),
   description: text('description'),
   dateTime: text('dateTime'), // ISO string
+  duration: integer('duration'), // duration in milliseconds
+  endTime: text('endTime'), // ISO string (alternative to duration)
   eventUrl: text('eventUrl'),
   venue: text('venue', { mode: 'json' }), // { name, address, city, state, country }
   group: text('group', { mode: 'json' }), // { name, urlname, keyGroupPhoto: { baseUrl, highResUrl } }

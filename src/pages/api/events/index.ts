@@ -27,22 +27,38 @@ export type UnifiedEvent = {
 
 function meetupRowToUnified(row: typeof meetupEvents.$inferSelect): UnifiedEvent {
   const dateTime = row.dateTime ? new Date(row.dateTime) : null;
-  const eventDate = dateTime ? dateTime.toISOString().slice(0, 10) : '';
+  const DENVER_TZ = 'America/Denver';
+  // Format date in Denver timezone
+  const eventDate = dateTime
+    ? dateTime.toLocaleDateString('en-CA', { timeZone: DENVER_TZ }) // en-CA gives YYYY-MM-DD format
+    : '';
   const startTime = dateTime
-    ? dateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    ? dateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: DENVER_TZ })
     : '12:00 AM';
 
-  // Calculate end time from duration (in milliseconds) if available in eventData
-  type EventDataObj = { duration?: number; endTime?: string; [key: string]: unknown };
-  const eventData = row.eventData as EventDataObj | null;
+  // Calculate end time from duration (in milliseconds) or endTime column
+  // Note: duration=0 means we tried to fetch but found nothing, so skip it
   let endTime: string | null = null;
-  if (dateTime && eventData?.duration && typeof eventData.duration === 'number') {
-    const endDateTime = new Date(dateTime.getTime() + eventData.duration);
-    endTime = endDateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  } else if (eventData?.endTime && typeof eventData.endTime === 'string') {
-    const endDateTime = new Date(eventData.endTime);
+  if (dateTime && row.duration && row.duration > 0) {
+    const endDateTime = new Date(dateTime.getTime() + row.duration);
+    endTime = endDateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: DENVER_TZ });
+  } else if (row.endTime && typeof row.endTime === 'string') {
+    const endDateTime = new Date(row.endTime);
     if (!isNaN(endDateTime.getTime())) {
-      endTime = endDateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      endTime = endDateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: DENVER_TZ });
+    }
+  } else {
+    // Fallback: check eventData for duration/endTime
+    type EventDataObj = { duration?: number; endTime?: string; [key: string]: unknown };
+    const eventData = row.eventData as EventDataObj | null;
+    if (dateTime && eventData?.duration && typeof eventData.duration === 'number') {
+      const endDateTime = new Date(dateTime.getTime() + eventData.duration);
+      endTime = endDateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: DENVER_TZ });
+    } else if (eventData?.endTime && typeof eventData.endTime === 'string') {
+      const endDateTime = new Date(eventData.endTime);
+      if (!isNaN(endDateTime.getTime())) {
+        endTime = endDateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: DENVER_TZ });
+      }
     }
   }
 

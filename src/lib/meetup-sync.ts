@@ -63,6 +63,8 @@ export async function storeMeetupEventsInDenverDb(
         }
       : null;
     const rsvpsJson = (meetup as Record<string, unknown>).rsvps ?? null;
+    const duration = typeof meetup.duration === 'number' ? meetup.duration : null;
+    const endTimeVal = typeof meetup.endTime === 'string' ? meetup.endTime : null;
 
     const row = {
       id,
@@ -70,6 +72,8 @@ export async function storeMeetupEventsInDenverDb(
       title: meetup.title || 'Untitled Event',
       description: meetup.description ?? null,
       dateTime: meetup.dateTime ?? null,
+      duration,
+      endTime: endTimeVal,
       eventUrl: meetup.eventUrl ?? null,
       venue: venueJson,
       group: groupJson,
@@ -93,6 +97,8 @@ export async function storeMeetupEventsInDenverDb(
           title: row.title,
           description: row.description,
           dateTime: row.dateTime,
+          duration: row.duration,
+          endTime: row.endTime,
           eventUrl: row.eventUrl,
           venue: row.venue,
           group: row.group,

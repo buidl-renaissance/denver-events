@@ -41,6 +41,10 @@ export interface MeetupEvent {
   title: string;
   description?: string;
   dateTime?: string;
+  /** Duration in milliseconds */
+  duration?: number;
+  /** End time ISO string (alternative to duration) */
+  endTime?: string;
   eventUrl?: string;
   venue?: {
     id?: string;
