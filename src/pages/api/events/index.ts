@@ -3,6 +3,64 @@ import { eq, sql, and, isNotNull } from 'drizzle-orm';
 import { getDb } from '@/db/drizzle';
 import { meetupEvents, raEvents } from '@/db/schema';
 
+const DENVER_TZ = 'America/Denver';
+
+/** Parse "h:mm a" to 24h hour and minute */
+function parseTime12h(timeStr: string): { hour: number; minute: number } | null {
+  const match = timeStr?.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+  if (!match) return null;
+  let hour = parseInt(match[1], 10);
+  const minute = parseInt(match[2], 10);
+  const pm = (match[3] || '').toLowerCase() === 'pm';
+  if (hour === 12) hour = pm ? 12 : 0;
+  else if (pm) hour += 12;
+  return { hour: hour % 24, minute: minute % 60 };
+}
+
+/** Get UTC offset in hours for Denver at the given date (YYYY-MM-DD). Denver is behind UTC. */
+function getDenverOffsetHours(dateStr: string): number {
+  const ref = new Date(dateStr + 'T12:00:00.000Z');
+  const denverHour = parseInt(
+    ref.toLocaleString('en-US', { timeZone: DENVER_TZ, hour: 'numeric', hour12: false }),
+    10
+  );
+  return 12 - denverHour;
+}
+
+/** Return event end as UTC Date, or null if unparseable. Uses eventDate + endTime, or eventDate + startTime + 2h. */
+function getEventEndUtc(event: UnifiedEvent): Date | null {
+  const [y, m, d] = (event.eventDate || '').split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const timePart = event.endTime || event.startTime;
+  const parsed = timePart ? parseTime12h(timePart) : { hour: 0, minute: 0 };
+  const hour = parsed?.hour ?? 0;
+  const minute = parsed?.minute ?? 0;
+  const offsetHours = getDenverOffsetHours(event.eventDate);
+  let endHour = hour;
+  let endMinute = minute;
+  let endDay = d;
+  if (!event.endTime && event.startTime) {
+    endHour = hour + 2;
+    if (endHour >= 24) {
+      endHour -= 24;
+      endDay += 1;
+    }
+  }
+  const utcHour = endHour + offsetHours;
+  const utcDay = endDay + Math.floor(utcHour / 24);
+  const utcHourInDay = ((utcHour % 24) + 24) % 24;
+  return new Date(Date.UTC(y, m - 1, utcDay, utcHourInDay, endMinute, 0, 0));
+}
+
+/** Keep only ongoing or future events (event end >= now) */
+function filterOngoingOrFuture(events: UnifiedEvent[]): UnifiedEvent[] {
+  const now = new Date();
+  return events.filter((event) => {
+    const end = getEventEndUtc(event);
+    return end && end >= now;
+  });
+}
+
 /** Exclude Meetup events that are online-only */
 const meetupExcludeOnline = and(
   isNotNull(meetupEvents.venue),
@@ -195,7 +253,9 @@ export default async function handler(
 
     const meetupUnified = meetupRows.map(meetupRowToUnified);
     const raUnified = raRows.map(raRowToUnified);
-    const combined: UnifiedEvent[] = [...meetupUnified, ...raUnified];
+    let combined: UnifiedEvent[] = [...meetupUnified, ...raUnified];
+
+    combined = filterOngoingOrFuture(combined);
 
     combined.sort((a, b) => {
       const d = a.eventDate.localeCompare(b.eventDate);
