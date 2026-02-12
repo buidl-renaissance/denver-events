@@ -24,6 +24,16 @@ function toAbsUrl(url: string | undefined): string | null {
   return url.startsWith('http') ? url : `https://ra.co${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
+/** Normalize RA contentUrl to path-only so consumers can prepend https://ra.co without duplicating domain */
+function toContentUrlPath(url: string | undefined): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('https://ra.co')) return trimmed.slice('https://ra.co'.length) || '/';
+  if (trimmed.startsWith('http://ra.co')) return trimmed.slice('http://ra.co'.length) || '/';
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
 /**
  * Upsert RA events into ra_events table with full detail.
  */
@@ -65,9 +75,7 @@ export async function storeRAEventsInDenverDb(
       startTime: ra.startTime ? formatTime(ra.startTime) : null,
       endTime: ra.endTime ? formatTime(ra.endTime) : null,
       title: ra.title || 'Untitled Event',
-      contentUrl: ra.contentUrl
-        ? (ra.contentUrl.startsWith('http') ? ra.contentUrl : `https://ra.co${ra.contentUrl}`)
-        : null,
+      contentUrl: toContentUrlPath(ra.contentUrl),
       flyerFront: ra.flyerFront ?? null,
       imageUrl,
       venue: venueJson,

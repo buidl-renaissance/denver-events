@@ -1,7 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, and, isNotNull } from 'drizzle-orm';
 import { getDb } from '@/db/drizzle';
 import { meetupEvents, raEvents } from '@/db/schema';
+
+/** Exclude Meetup events that are online-only */
+const meetupExcludeOnline = and(
+  isNotNull(meetupEvents.venue),
+  sql`(json_extract(${meetupEvents.eventData}, '$.isOnline') IS NULL OR json_extract(${meetupEvents.eventData}, '$.isOnline') != 1)`,
+  sql`(json_extract(${meetupEvents.venue}, '$.name') IS NULL OR lower(json_extract(${meetupEvents.venue}, '$.name')) NOT LIKE '%online%')`,
+  sql`(json_extract(${meetupEvents.eventData}, '$.venueType') IS NULL OR lower(json_extract(${meetupEvents.eventData}, '$.venueType')) NOT IN ('online', 'virtual'))`
+);
 
 /** Unified event shape for mobile app (same as before) */
 export type UnifiedEvent = {
@@ -107,6 +115,15 @@ function meetupRowToUnified(row: typeof meetupEvents.$inferSelect): UnifiedEvent
   };
 }
 
+/** Normalize RA URL to path-only so mobile app can safely prepend https://ra.co */
+function raContentUrlToPath(url: string | null): string | null {
+  if (!url || !url.trim()) return null;
+  const u = url.trim();
+  if (u.startsWith('https://ra.co')) return u.slice(14) || '/';
+  if (u.startsWith('http://ra.co')) return u.slice(13) || '/';
+  return u.startsWith('/') ? u : `/${u}`;
+}
+
 function raRowToUnified(row: typeof raEvents.$inferSelect): UnifiedEvent {
   const artists = Array.isArray(row.artists) ? row.artists : [];
   const artistNames = artists.length
@@ -125,7 +142,7 @@ function raRowToUnified(row: typeof raEvents.$inferSelect): UnifiedEvent {
     eventName: row.title,
     organizer: artistNames ?? null,
     venue: venueName,
-    registrationUrl: row.contentUrl ?? null,
+    registrationUrl: raContentUrlToPath(row.contentUrl ?? null),
     imageUrl: row.imageUrl ?? null,
     notes: artistNames ?? null,
     createdAt: String(row.createdAt),
@@ -154,16 +171,19 @@ export default async function handler(
     const dateFilter =
       typeof queryDate === 'string' && queryDate ? queryDate : null;
 
+    const meetupWhere = dateFilter
+      ? and(
+          sql`substr(${meetupEvents.dateTime}, 1, 10) = ${dateFilter}`,
+          meetupExcludeOnline
+        )
+      : meetupExcludeOnline;
+
     const [meetupRows, raRows] = await Promise.all([
-      dateFilter
-        ? db
-            .select()
-            .from(meetupEvents)
-            .where(
-              sql`substr(${meetupEvents.dateTime}, 1, 10) = ${dateFilter}`
-            )
-            .orderBy(meetupEvents.dateTime)
-        : db.select().from(meetupEvents).orderBy(meetupEvents.dateTime),
+      db
+        .select()
+        .from(meetupEvents)
+        .where(meetupWhere)
+        .orderBy(meetupEvents.dateTime),
       dateFilter
         ? db
             .select()
