@@ -8,7 +8,7 @@ type SyncResponse =
 /**
  * POST /api/events/sync
  * Fetches Denver-area Meetup events and upserts them into the events table.
- * Optional query: first=48 (limit), lat=39.7392, lon=-104.9903
+ * Optional query: first=96 (limit), lat=39.7392, lon=-104.9903
  */
 export default async function handler(
   req: NextApiRequest,

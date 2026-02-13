@@ -36,7 +36,7 @@ const PERSISTED_QUERY_HASH = 'cf6348a7edb376af58158519e78130eb8beced0aaaed60ab37
 
 /** Default variables: Denver area, upcoming events */
 export const defaultVariables: RecommendedEventsVariables = {
-  first: 48,
+  first: 96,
   lat: DENVER_LAT,
   lon: DENVER_LON,
   startDateRange: formatDateWithTimezone(new Date()),
